@@ -1,0 +1,13 @@
+Package: RNDClone
+Type: Package
+Title: RNDClone: Tumor Subclone Reconstruction Based on Integrating DNA
+        and RNA Sequence Data
+Version: 1.0
+Author: Tianjian Zhou and Subhajit Sengupta
+Maintainer: Tianjian Zhou <tjzhou95@gmail.com>, Subhajit Sengupta <subhajit06@gmail.com>
+Description: This is the software package for the paper RNDClone: Tumor Subclone Reconstruction Based on Integrating DNA and RNA Sequence Data. This package contains the R and cpp codes to run the MCMC algorithm described in the paper, as well as the simulation and real-world datasets. All simulation datasets and the real-world TCGA dataset are stored under the subfolder data. 
+License: GPL-3 | file LICENSE
+Encoding: UTF-8
+LazyData: true
+NeedsCompilation: yes
+Packaged: 2020-02-27 00:08:11 UTC; subhajit

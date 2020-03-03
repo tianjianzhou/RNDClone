@@ -1,0 +1,7 @@
+useDynLib(RNDClone)
+
+export(RNDClone_PT)
+export(RNDClone_RJMCMC)
+export(DClone_RJMCMC)
+export(RClone_RJMCMC)
+
