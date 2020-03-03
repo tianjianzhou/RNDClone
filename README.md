@@ -34,20 +34,21 @@ MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun)
 # For testing purpose, use (small number of iterations and burnin)
 # MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun, niter = 50, burnin = 200, thin = 2)
 
-# Point estimate of C: posterior mode
+# Retrieve posterior samples of the parameters
 C_spls = MCMC_spls$sample_list$C_spls
-C_hat = which.max(tabulate(C_spls))
-
-logpost_spls = MCMC_spls$sample_list$logpost_spls
-logpost_spls[C_spls != C_hat] = -Inf
-index_MAP = which.max(logpost_spls)
-
 L_spls = MCMC_spls$sample_list$L_spls
 Z_spls = MCMC_spls$sample_list$Z_spls
 W_spls = MCMC_spls$sample_list$W_spls
 Lambda_spls = MCMC_spls$sample_list$Lambda_spls
 
+# Point estimate of C: posterior mode
+C_hat = which.max(tabulate(C_spls))
+
 # Point estimates of L, Z, W and Lambda: Maximum A Posteriori (MAP) conditional on C_hat
+# First find which sample has the largest log-posterior
+logpost_spls = MCMC_spls$sample_list$logpost_spls
+logpost_spls[C_spls != C_hat] = -Inf
+index_MAP = which.max(logpost_spls)
 L_hat = L_spls[[index_MAP]]
 Z_hat = Z_spls[[index_MAP]]
 W_hat = W_spls[[index_MAP]]
