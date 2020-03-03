@@ -10,6 +10,25 @@ library(devtools)
 install_github("tianjianzhou/RNDClone")
 ```
 
+
+## Example
+```
+library(RNDClone)
+
+data(sim1a_C4_T4)
+
+n = sim1a_C4_T4$n
+N = sim1a_C4_T4$N
+m = sim1a_C4_T4$m
+M = sim1a_C4_T4$M
+g_fun = sim1a_C4_T4$g_fun
+
+set.seed(345)
+
+MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun)
+```
+
+
 ## Usage
 The `RNDClone` package contains four functions: `RNDClone_RJMCMC`, `DClone_RJMCMC`, `RClone_RJMCMC`, and `RNDClone_PT`.
 
