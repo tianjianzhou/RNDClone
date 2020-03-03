@@ -11,4 +11,8 @@ install_github("tianjianzhou/RNDClone")
 ```
 
 ## Usage
-The `RNDClone` package contains four functions: `RNDClone_PT`, `RNDClone_RJMCMC`, `DClone_RJMCMC` and `RClone_RJMCMC`.
+The `RNDClone` package contains four functions: `RNDClone_RJMCMC`, `DClone_RJMCMC`, `RClone_RJMCMC`, and `RNDClone_PT`.
+
+To understand how to use these functions, it is necessary to introduce some notation: `n`, `N`, `m`, `M`, and `g_fun`.
+- `n` is a S * T matrix
+- `N` is a S * T
