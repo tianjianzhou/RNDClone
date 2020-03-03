@@ -26,5 +26,5 @@ To understand how to use these functions, it is necessary to introduce some nota
 ```
 RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = NULL, ...)
 ```
-
+Hyperparameters, such as `C_min`, `C_max`, `K_min`, `K_max`, `a_w`, `b_w`, `d`, ..., may be specified, although they have default values. MCMC parameters, such as `niter`, `burnin` and `thin`, may also be specified. The default is `niter = 5000`, `burnin = 20000` and `thin = 2`.
 
