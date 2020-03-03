@@ -28,8 +28,9 @@ g_fun = sim1a_C4_T4$g_fun
 
 set.seed(345)
 
-# Run the trans-dimensional MCMC as described in the paper
+# Run the trans-dimensional MCMC as described in the paper (may take a while, ~ 1 hr)
 MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun)
+
 # For testing purpose, use (small number of iterations and burnin)
 # MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun, niter = 50, burnin = 200, thin = 2)
 
