@@ -38,8 +38,8 @@ MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun)
 C_spls = MCMC_spls$sample_list$C_spls
 L_spls = MCMC_spls$sample_list$L_spls
 Z_spls = MCMC_spls$sample_list$Z_spls
-W_spls = MCMC_spls$sample_list$W_spls
 Lambda_spls = MCMC_spls$sample_list$Lambda_spls
+W_spls = MCMC_spls$sample_list$W_spls
 
 # Point estimate of C: posterior mode
 C_hat = which.max(tabulate(C_spls))
@@ -51,8 +51,9 @@ logpost_spls[C_spls != C_hat] = -Inf
 index_MAP = which.max(logpost_spls)
 L_hat = L_spls[[index_MAP]]
 Z_hat = Z_spls[[index_MAP]]
-W_hat = W_spls[[index_MAP]]
 Lambda_hat = Lambda_spls[[index_MAP]]
+# The last column of W_hat corresponds to w[t0] in the paper, which is used to capture random noise
+W_hat = W_spls[[index_MAP]]
 ```
 
 
