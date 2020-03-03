@@ -22,3 +22,9 @@ To understand how to use these functions, it is necessary to introduce some nota
 - `g_fun` is a length `S` vector, where `g_fun[s]` is the index of the gene that locus `s` reside in (This argument is optional for the four functions)
 
 
+`RNDClone_RJMCMC` is a function of the four data matrices `n`, `N`, `m` and `M`. It has the following form:
+```
+RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = NULL, ...)
+```
+
+
