@@ -1,3 +1,65 @@
+#' RNDClone: Tumor Subclone Reconstruction Based on Integrating DNA and RNA Sequence Data
+#'
+#' @description
+#' The RNDClone package includes four major functions, which can be used for 
+#' tumor subclone reconstruction (based on Bayesian inference and posterior Markov
+#' chain Monte Carlo) with DNA and RNA sequence data. The four functions are:
+#' \describe{
+#' \item{\code{RNDClone_RJMCMC}}{}
+#' \item{\code{RNDClone_PT}}{}
+#' \item{\code{DClone_RJMCMC}}{}
+#' \item{\code{RClone_RJMCMC}}{}
+#' }
+#' Use \code{?Function_Name} or \code{help(Function_Name)} to retrieve the 
+#' documentation for a specific function. E.g., \code{?RNDClone_RJMCMC}.
+#'
+#' @docType package
+#' @name RNDClone
+#' @section Author(s):
+#' Tianjian Zhou, \email{tjzhou@uchicago.edu}
+#' @examples
+#' library(RNDClone)
+#' 
+#' data(sim1a_C4_T4)
+#' 
+#' # Retrieve data
+#' n = sim1a_C4_T4$n
+#' N = sim1a_C4_T4$N
+#' m = sim1a_C4_T4$m
+#' M = sim1a_C4_T4$M
+#' g_fun = sim1a_C4_T4$g_fun
+#' 
+#' set.seed(345)
+#' 
+#' # Run the trans-dimensional MCMC as described in the paper (may take a while, ~ 1 hr)
+#' MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun)
+#' 
+#' # For testing purpose, use (small number of iterations and burnin)
+#' # MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun, niter = 50, burnin = 200, thin = 2)
+#' 
+#' # Retrieve posterior samples of the parameters
+#' C_spls = MCMC_spls$sample_list$C_spls
+#' L_spls = MCMC_spls$sample_list$L_spls
+#' Z_spls = MCMC_spls$sample_list$Z_spls
+#' Lambda_spls = MCMC_spls$sample_list$Lambda_spls
+#' W_spls = MCMC_spls$sample_list$W_spls
+#' 
+#' # Point estimate of C: posterior mode
+#' C_hat = which.max(tabulate(C_spls))
+#' 
+#' # Point estimates of L, Z, W and Lambda: Maximum A Posteriori (MAP) conditional on C_hat
+#' # First find which sample has the largest log-posterior
+#' logpost_spls = MCMC_spls$sample_list$logpost_spls
+#' logpost_spls[C_spls != C_hat] = -Inf
+#' index_MAP = which.max(logpost_spls)
+#' L_hat = L_spls[[index_MAP]]
+#' Z_hat = Z_spls[[index_MAP]]
+#' Lambda_hat = Lambda_spls[[index_MAP]]
+#' # The last column of W_hat corresponds to w[t0] in the paper, which is used to capture random noise
+#' W_hat = W_spls[[index_MAP]]
+#'
+#' # End(Not run)
+NULL
 
 ###################################################################################
 # 1. RNDClone: Function for fixed-dimensional MCMC
@@ -481,6 +543,120 @@ RNDClone_PT = function(n, N, m, M, C,
 ###################################################################################
 # 2. RNDClone: Function for Trans-dimensional (Reversible Jump) MCMC
 ###################################################################################
+
+#' RNDClone trans-dimensional MCMC sampling
+#' 
+#' @description
+#' Implementing the trans-dimensional Markov chain Monte Carlo (MCMC) sampling 
+#' and parallel tempering described in the paper "RNDClone: Tumor Subclone 
+#' Reconstruction Based on Integrating DNA and RNA Sequence Data". 
+#' The function \code{RNDClone_RJMCMC(n, N, m, M, ...)} takes four
+#' matrices, variant DNA counts \code{n}, total DNA counts \code{N}, 
+#' variant RNA counts \code{m} and total RNA counts \code{M},
+#' as input, and returns posterior MCMC samples (in a list). 
+#'
+#' @param n A \code{S * T} matrix, where \code{n[s, t]} is the number of variant
+#'          DNA reads at locus \code{s} for sample \code{t}.
+#'          Here, \code{S} is the number of nucleotide loci,
+#'          and \code{T} is the number of tissue samples.
+#' @param N A \code{S * T} matrix, where \code{N[s, t]} is the total number of  
+#'          DNA reads at locus \code{s} for sample \code{t}.
+#' @param m A \code{S * T} matrix, where \code{m[s, t]} is the number of  
+#'          variant RNA reads at locus \code{s} for sample \code{t}.
+#' @param M A \code{S * T} matrix, where \code{M[s, t]} is the total number of
+#'          RNA reads at locus \code{s} for sample \code{t}.
+#' @param C_min The prior lower bound for the number of subclones C; default is 2.
+#' @param C_max The prior upper bound for the number of subclones C; default is 7.
+#' @param g_fun A length \code{S} vector, where \code{g_fun[s]} is the index of 
+#'              the gene that locus \code{s} reside in. 
+#'              If not specified, \code{g_fun = 1:S} by default, i.e.,
+#'              each locus reside in a unique gene.
+#' @param K_min The prior lower bound for the copy number l[s, c]; default is 1.
+#' @param K_max The prior upper bound for the copy number l[s, c]; default is 3.
+#' @param niter Number of trans-dimensional MCMC samples to be returned; default is 5000.
+#' @param burnin Number of burn-in MCMC iterations; default is 20000.
+#' @param thin Thinning factor for the MCMC sampling; default is 2, 
+#'             i.e., take one sample every two MCMC iterations.
+#'             (Note: the total number of MCMC iterations would be 
+#'             burnin + thinning * niter).
+#' @param Delta A length I vector representing the (decreasing) temperatures used for 
+#'              parallel tempering. The last entry Delta[I] must be 1. The default value
+#'              is a length 10 vector, 1.15^(9:0).
+#' @param tau The power of the likelihood in the power prior proposal; default is 0.99.
+#' @param alpha A hyperparameter in the prior for C. Recall that C ~ Trunc-Geom(alpha),
+#'              where C is the number of subclones. The default value is alpha = 0.8.
+#' @param a_w A hyperparameter in the prior for W.
+#' @param b_w A hyperparameter in the prior for W.
+#' @param ... Other hyperparameters.
+#'
+#' @return A list of the following:
+#' \describe{
+#' \item{\code{sample_list}}{Again, a list of MCMC samples for the parameters.
+#' \itemize{
+#'   \item \code{C_spls} A length \code{niter} vector, MCMC samples of the number 
+#'                       of subclones C.
+#'   \item \code{L_spls} A length \code{niter} list, MCMC samples of the copy number 
+#'                       matrix L. Since the dimension of L is changing at each iteration, 
+#'                       \code{L_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{Z_spls} A length \code{niter} list, MCMC samples of the variant allele
+#'                       number matrix Z. Since the dimension of Z is changing at each 
+#'                       iteration, \code{Z_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{Lambda_spls} A length \code{niter} list, MCMC samples of the gene 
+#'                       expression matrix Lambda. Since the dimension of Lambda is 
+#'                       changing at each iteration, 
+#'                       \code{Lambda_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{W_spls} A length \code{niter} list, MCMC samples of the population 
+#'                       frequency matrix W. Since the dimension of W is 
+#'                       changing at each iteration, 
+#'                       \code{W_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{logpost_spls} A length \code{niter} vector, log-posterior value
+#'                             at each MCMC iteration.
+#' }}
+#' \item{\code{PT_AC_state_list}}{For keeping the current MCMC states at every temprature}
+#' }
+#' @examples
+#' library(RNDClone)
+#' 
+#' data(sim1a_C4_T4)
+#' 
+#' # Retrieve data
+#' n = sim1a_C4_T4$n
+#' N = sim1a_C4_T4$N
+#' m = sim1a_C4_T4$m
+#' M = sim1a_C4_T4$M
+#' g_fun = sim1a_C4_T4$g_fun
+#' 
+#' set.seed(345)
+#' 
+#' # Run the trans-dimensional MCMC as described in the paper (may take a while, ~ 1 hr)
+#' MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun)
+#' 
+#' # For testing purpose, use (small number of iterations and burnin)
+#' # MCMC_spls = RNDClone_RJMCMC(n = n, N = N, m = m, M = M, g_fun = g_fun, niter = 50, burnin = 200, thin = 2)
+#' 
+#' # Retrieve posterior samples of the parameters
+#' C_spls = MCMC_spls$sample_list$C_spls
+#' L_spls = MCMC_spls$sample_list$L_spls
+#' Z_spls = MCMC_spls$sample_list$Z_spls
+#' Lambda_spls = MCMC_spls$sample_list$Lambda_spls
+#' W_spls = MCMC_spls$sample_list$W_spls
+#' 
+#' # Point estimate of C: posterior mode
+#' C_hat = which.max(tabulate(C_spls))
+#' 
+#' # Point estimates of L, Z, W and Lambda: Maximum A Posteriori (MAP) conditional on C_hat
+#' # First find which sample has the largest log-posterior
+#' logpost_spls = MCMC_spls$sample_list$logpost_spls
+#' logpost_spls[C_spls != C_hat] = -Inf
+#' index_MAP = which.max(logpost_spls)
+#' L_hat = L_spls[[index_MAP]]
+#' Z_hat = Z_spls[[index_MAP]]
+#' Lambda_hat = Lambda_spls[[index_MAP]]
+#' # The last column of W_hat corresponds to w[t0] in the paper, which is used to capture random noise
+#' W_hat = W_spls[[index_MAP]]
+#'
+#' # End(Not run)
+
 RNDClone_RJMCMC = function(n, N, m, M, 
   C_min = 2, C_max = 7, 
   g_fun = NULL, K_min = 1, K_max = 3,
@@ -492,7 +668,39 @@ RNDClone_RJMCMC = function(n, N, m, M,
   a_phi = NULL, b_phi = NULL, a_psi = NULL, b_psi = NULL,
   verbose = FALSE){
   
-  # tau: power prior
+  ## Check input
+
+  if ((length(unique(c(dim(n)[1], dim(N)[1], dim(m)[1], dim(M)[1]))) != 1) |
+      (length(unique(c(dim(n)[2], dim(N)[2], dim(m)[2], dim(M)[2]))) != 1)) {
+    stop("Dimension of the four input matrices does not match!")
+  }
+
+  if (any(n > N)) {
+    stop("For some locus, variant DNA count > total DNA count!")
+  }
+
+  if (any(m > M)) {
+    stop("For some locus, variant RNA count > total RNA count!")
+  }
+
+  if (any(n < 0)) {
+    stop("For some locus, variant DNA count < 0!")
+  }
+
+  if (any(N < 0)) {
+    stop("For some locus, total DNA count < 0!")
+  }
+
+  if (any(m < 0)) {
+    stop("For some locus, variant RNA count < 0!")
+  }
+
+  if (any(M < 0)) {
+    stop("For some locus, total RNA count < 0!")
+  }
+  
+
+  ## Start
 
   cat("RNDClone RJ-MCMC (with parallel tempering, jump across different C) started.\n")
   cat(sprintf("C_min = %d, C_max = %d. Date: %s.\n\n", C_min, C_max, date()))
