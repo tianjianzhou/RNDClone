@@ -64,6 +64,130 @@ NULL
 ###################################################################################
 # 1. RNDClone: Function for fixed-dimensional MCMC
 ###################################################################################
+
+#' RNDClone fixed-dimensional MCMC sampling
+#' 
+#' @description
+#' Implementing the parallel-tempering Markov chain Monte Carlo (MCMC) sampling 
+#' (with a fixed number of subclones C) described in the paper 
+#' "RNDClone: Tumor Subclone 
+#' Reconstruction Based on Integrating DNA and RNA Sequence Data". 
+#' The function \code{RNDClone_PT(n, N, m, M, C,...)} takes four
+#' matrices, variant DNA counts \code{n}, total DNA counts \code{N}, 
+#' variant RNA counts \code{m} and total RNA counts \code{M}, and the 
+#' pre-specified number of subclones \code{C},
+#' as input, and returns posterior MCMC samples (in a list). 
+#'
+#' @param n A \code{S * T} matrix, where \code{n[s, t]} is the number of variant
+#'          DNA reads at locus \code{s} for sample \code{t}.
+#'          Here, \code{S} is the number of nucleotide loci,
+#'          and \code{T} is the number of tissue samples.
+#' @param N A \code{S * T} matrix, where \code{N[s, t]} is the total number of  
+#'          DNA reads at locus \code{s} for sample \code{t}.
+#' @param m A \code{S * T} matrix, where \code{m[s, t]} is the number of  
+#'          variant RNA reads at locus \code{s} for sample \code{t}.
+#' @param M A \code{S * T} matrix, where \code{M[s, t]} is the total number of
+#'          RNA reads at locus \code{s} for sample \code{t}.
+#' @param C Pre-specified number of subclones. If no information is available, use
+#'          function \code{RNDClone_RJMCMC} to obtain an estimate of the number of
+#'          subclones \code{C} through trans-dimensional MCMC.
+#' @param g_fun A length \code{S} vector, where \code{g_fun[s]} is the index of 
+#'              the gene that locus \code{s} reside in. 
+#'              If not specified, \code{g_fun = 1:S} by default, i.e.,
+#'              each locus reside in a unique gene.
+#' @param K_min The prior lower bound for the copy number l[s, c]; default is 1.
+#' @param K_max The prior upper bound for the copy number l[s, c]; default is 3.
+#' @param niter Number of trans-dimensional MCMC samples to be returned; default is 5000.
+#' @param burnin Number of burn-in MCMC iterations; default is 20000.
+#' @param thin Thinning factor for the MCMC sampling; default is 2, 
+#'             i.e., take one sample every two MCMC iterations.
+#'             (Note: the total number of MCMC iterations would be 
+#'             burnin + thinning * niter).
+#' @param Delta A length I vector representing the (decreasing) temperatures used for 
+#'              parallel tempering. The last entry Delta[I] must be 1. The default value
+#'              is a length 10 vector, 1.15^(9:0).
+#' @param tau The power of the likelihood in the power prior proposal; default is 0.99.
+#' @param alpha A hyperparameter in the prior for C. Recall that C ~ Trunc-Geom(alpha),
+#'              where C is the number of subclones. The default value is alpha = 0.8.
+#' @param a_w A hyperparameter in the prior for W. Default is 1. Recall that W is a 
+#             \code{T * (C + 1)} matrix (including w[t, 0], included 
+#'            in the last column of W).
+#'            The t-th row of W is \code{c(W[t, 1], ..., W[t, C], W[t, 0])}, the 
+#'            population frequencies of the C subclones and the "background subclone".
+#'            W[t, 1] ~ Beta(a_w, b_w), and 
+#'           (W[t, 0], W[t, 2], ..., W[t, C]) ~ Dirichlet(d0, d, ..., d).
+#' @param b_w A hyperparameter in the prior for W. Default is 1.
+#' @param d A hyperparameter in the prior for W. Default is 1.
+#' @param d0 A hyperparameter in the prior for W. Default is 0.03.
+#' @param a_lambda A hyperparameter in the prior for Lambda. 
+#'                 Recall that Lambda[g, c] ~ Gamma(a_lambda, b_lambda),
+#'                 which is the RSGE of gene g in subclone c.
+#'                 Default is 1.
+#' @param b_lambda A hyperparameter in the prior for Lambda. 
+#'                 Default is 1.
+#' @param ... Other hyperparameters. Have default values but can also be changed.
+#'
+#' @return A list of the following:
+#' \describe{
+#' \item{\code{sample_list}}{Again, a list of MCMC samples for the parameters.
+#' \itemize{
+#'   \item \code{L_spls} A \code{S * C * niter} array, MCMC samples of the copy number 
+#'                       matrix L. 
+#'                       \code{L_spls[ , , j]} is the sample at the j-th iteration.
+#'   \item \code{Z_spls} A \code{S * C * niter} array, MCMC samples of the variant allele
+#'                       number matrix Z. 
+#'                       \code{Z_spls[ , , j]} is the sample at the j-th iteration.
+#'   \item \code{Lambda_spls} A \code{G * C * niter} array, MCMC samples of the gene 
+#'                       expression matrix Lambda. 
+#'                       \code{Lambda_spls[, , j]} is the sample at the j-th iteration.
+#'   \item \code{W_spls} A \code{T * (C + 1) * niter} array, MCMC samples of the population 
+#'                       frequency matrix W. 
+#'                       \code{W_spls[, , j]} is the sample at the j-th iteration.
+#'   \item \code{logpost_spls} A length \code{niter} vector, log-posterior value
+#'                             at each MCMC iteration.
+#' }}
+#' \item{\code{PT_state_list}}{For keeping the current MCMC states at every temprature}
+#' }
+#' @examples
+#' library(RNDClone)
+#' 
+#' data(sim1a_C4_T4)
+#' 
+#' # Retrieve data
+#' n = sim1a_C4_T4$n
+#' N = sim1a_C4_T4$N
+#' m = sim1a_C4_T4$m
+#' M = sim1a_C4_T4$M
+#' g_fun = sim1a_C4_T4$g_fun
+#' 
+#' set.seed(345)
+#' 
+#' # Run the parallel-tempering MCMC as described in the paper (may take a while, ~ 20 min)
+#' # Here we know the true C = 4, and we pre-specify it
+#' MCMC_spls = RNDClone_PT(n = n, N = N, m = m, M = M, C = 4, g_fun = g_fun)
+#' 
+#' # For testing purpose, use (small number of iterations and burnin)
+#' # MCMC_spls = RNDClone_PT(n = n, N = N, m = m, M = M, C = 4, g_fun = g_fun, 
+#'                           niter = 50, burnin = 200, thin = 2)
+#' 
+#' # Retrieve posterior samples of the parameters
+#' L_spls = MCMC_spls$sample_list$L_spls
+#' Z_spls = MCMC_spls$sample_list$Z_spls
+#' Lambda_spls = MCMC_spls$sample_list$Lambda_spls
+#' W_spls = MCMC_spls$sample_list$W_spls
+#' 
+#' # Point estimates of L, Z, W and Lambda: Maximum A Posteriori (MAP)
+#' # First find which sample has the largest log-posterior
+#' logpost_spls = MCMC_spls$sample_list$logpost_spls
+#' index_MAP = which.max(logpost_spls)
+#' L_hat = L_spls[ , , index_MAP]
+#' Z_hat = Z_spls[ , , index_MAP]
+#' Lambda_hat = Lambda_spls[ , , index_MAP]
+#' # The last column of W_hat corresponds to w[t0] in the paper, which is used to capture random noise
+#' W_hat = W_spls[ , , index_MAP]
+#'
+#' # End(Not run)
+
 RNDClone_PT = function(n, N, m, M, C, 
   g_fun = NULL, K_min = 1, K_max = 3,
   niter = 5000, burnin = 20000, thin = 2, Delta = 1.15^(9:0),
@@ -585,9 +709,23 @@ RNDClone_PT = function(n, N, m, M, C,
 #' @param tau The power of the likelihood in the power prior proposal; default is 0.99.
 #' @param alpha A hyperparameter in the prior for C. Recall that C ~ Trunc-Geom(alpha),
 #'              where C is the number of subclones. The default value is alpha = 0.8.
-#' @param a_w A hyperparameter in the prior for W.
-#' @param b_w A hyperparameter in the prior for W.
-#' @param ... Other hyperparameters.
+#' @param a_w A hyperparameter in the prior for W. Default is 1. Recall that W is a 
+#             \code{T * (C + 1)} matrix (including w[t, 0], included 
+#'            in the last column of W).
+#'            The t-th row of W is \code{c(W[t, 1], ..., W[t, C], W[t, 0])}, the 
+#'            population frequencies of the C subclones and the "background subclone".
+#'            W[t, 1] ~ Beta(a_w, b_w), and 
+#'           (W[t, 0], W[t, 2], ..., W[t, C]) ~ Dirichlet(d0, d, ..., d).
+#' @param b_w A hyperparameter in the prior for W. Default is 1.
+#' @param d A hyperparameter in the prior for W. Default is 1.
+#' @param d0 A hyperparameter in the prior for W. Default is 0.03.
+#' @param a_lambda A hyperparameter in the prior for Lambda. 
+#'                 Recall that Lambda[g, c] ~ Gamma(a_lambda, b_lambda),
+#'                 which is the RSGE of gene g in subclone c.
+#'                 Default is 1.
+#' @param b_lambda A hyperparameter in the prior for Lambda. 
+#'                 Default is 1.
+#' @param ... Other hyperparameters. Have default values but can also be changed.
 #'
 #' @return A list of the following:
 #' \describe{
@@ -612,7 +750,8 @@ RNDClone_PT = function(n, N, m, M, C,
 #'   \item \code{logpost_spls} A length \code{niter} vector, log-posterior value
 #'                             at each MCMC iteration.
 #' }}
-#' \item{\code{PT_AC_state_list}}{For keeping the current MCMC states at every temprature}
+#' \item{\code{PT_AC_state_list}}{For keeping the current MCMC states at every temprature
+#'                                and every possible C (number of subclones)}
 #' }
 #' @examples
 #' library(RNDClone)
@@ -697,6 +836,28 @@ RNDClone_RJMCMC = function(n, N, m, M,
 
   if (any(M < 0)) {
     stop("For some locus, total RNA count < 0!")
+  }
+
+  if (!is.null(g_fun)) {
+    if ( (!all(g_fun == floor(g_fun))) | any(g_fun <= 0)) {
+      stop("g_fun must be an positive integer vector!")
+    }
+    if ( min(g_fun) != 1 | max(g_fun) != length(unique(g_fun)) ) {
+      stop("g_fun is the indeces of genes, which must start 
+            with 1 and increase consecutively!")
+    }
+  }
+  
+  if (C_min >= C_max) {
+    if(C_min == C_max) {
+      stop("If a fixed C is specified (C_min = C_max), please use RNDClone_PT.")
+    } else {
+      stop("C_max must be larger than C_min!")
+    }
+  }
+
+  if (K_min > K_max) {
+    stop("K_max must be larger than or equal to K_min!")
   }
   
 
@@ -1211,6 +1372,114 @@ RNDClone_RJMCMC = function(n, N, m, M,
 # 3. DClone: Function for Trans-dimensional (Reversible Jump) MCMC,
 #    if only DNA data are available
 ###################################################################################
+
+#' DClone trans-dimensional MCMC sampling
+#' 
+#' @description
+#' \code{DClone_RJMCMC} implements the trans-dimensional Markov chain Monte Carlo (MCMC)  
+#' sampling and parallel tempering described in the paper "RNDClone: Tumor Subclone 
+#' Reconstruction Based on Integrating DNA and RNA Sequence Data"
+#' if \strong{only DNA data are available}.
+#' The function \code{DClone_RJMCMC(n, N, ...)} takes two
+#' matrices, variant DNA counts \code{n} and total DNA counts \code{N}, 
+#' as input, and returns posterior MCMC samples (in a list). 
+#' Compared to \code{RNDClone_RJMCMC}, \code{DClone_RJMCMC(n, N, ...)} cannot 
+#' estimate RNA-related quantities such as Lambda (subclonal gene expression levels).
+#'
+#' @param n A \code{S * T} matrix, where \code{n[s, t]} is the number of variant
+#'          DNA reads at locus \code{s} for sample \code{t}.
+#'          Here, \code{S} is the number of nucleotide loci,
+#'          and \code{T} is the number of tissue samples.
+#' @param N A \code{S * T} matrix, where \code{N[s, t]} is the total number of  
+#'          DNA reads at locus \code{s} for sample \code{t}.
+#' @param C_min The prior lower bound for the number of subclones C; default is 2.
+#' @param C_max The prior upper bound for the number of subclones C; default is 7.
+#' @param K_min The prior lower bound for the copy number l[s, c]; default is 1.
+#' @param K_max The prior upper bound for the copy number l[s, c]; default is 3.
+#' @param niter Number of trans-dimensional MCMC samples to be returned; default is 5000.
+#' @param burnin Number of burn-in MCMC iterations; default is 20000.
+#' @param thin Thinning factor for the MCMC sampling; default is 2, 
+#'             i.e., take one sample every two MCMC iterations.
+#'             (Note: the total number of MCMC iterations would be 
+#'             burnin + thinning * niter).
+#' @param Delta A length I vector representing the (decreasing) temperatures used for 
+#'              parallel tempering. The last entry Delta[I] must be 1. The default value
+#'              is a length 10 vector, 1.15^(9:0).
+#' @param tau The power of the likelihood in the power prior proposal; default is 0.99.
+#' @param alpha A hyperparameter in the prior for C. Recall that C ~ Trunc-Geom(alpha),
+#'              where C is the number of subclones. The default value is alpha = 0.8.
+#' @param a_w A hyperparameter in the prior for W. Default is 1. Recall that W is a 
+#             \code{T * (C + 1)} matrix (including w[t, 0], included 
+#'            in the last column of W).
+#'            The t-th row of W is \code{c(W[t, 1], ..., W[t, C], W[t, 0])}, the 
+#'            population frequencies of the C subclones and the "background subclone".
+#'            W[t, 1] ~ Beta(a_w, b_w), and 
+#'           (W[t, 0], W[t, 2], ..., W[t, C]) ~ Dirichlet(d0, d, ..., d).
+#' @param b_w A hyperparameter in the prior for W. Default is 1.
+#' @param d A hyperparameter in the prior for W. Default is 1.
+#' @param d0 A hyperparameter in the prior for W. Default is 0.03.
+#' @param ... Other hyperparameters. Have default values but can also be changed.
+#'
+#' @return A list of the following:
+#' \describe{
+#' \item{\code{sample_list}}{Again, a list of MCMC samples for the parameters.
+#' \itemize{
+#'   \item \code{C_spls} A length \code{niter} vector, MCMC samples of the number 
+#'                       of subclones C.
+#'   \item \code{L_spls} A length \code{niter} list, MCMC samples of the copy number 
+#'                       matrix L. Since the dimension of L is changing at each iteration, 
+#'                       \code{L_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{Z_spls} A length \code{niter} list, MCMC samples of the variant allele
+#'                       number matrix Z. Since the dimension of Z is changing at each 
+#'                       iteration, \code{Z_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{W_spls} A length \code{niter} list, MCMC samples of the population 
+#'                       frequency matrix W. Since the dimension of W is 
+#'                       changing at each iteration, 
+#'                       \code{W_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{logpost_spls} A length \code{niter} vector, log-posterior value
+#'                             at each MCMC iteration.
+#' }}
+#' \item{\code{PT_AC_state_list}}{For keeping the current MCMC states at every temprature
+#'                                and every possible C (number of subclones)}
+#' }
+#' @examples
+#' library(RNDClone)
+#' 
+#' data(sim1a_C4_T4)
+#' 
+#' # Retrieve data
+#' n = sim1a_C4_T4$n
+#' N = sim1a_C4_T4$N
+#' 
+#' set.seed(345)
+#' 
+#' # Run the trans-dimensional MCMC as described in the paper (may take a while, ~ 1 hr)
+#' MCMC_spls = DClone_RJMCMC(n = n, N = N)
+#' 
+#' # For testing purpose, use (small number of iterations and burnin)
+#' # MCMC_spls = DClone_RJMCMC(n = n, N = N, niter = 50, burnin = 200, thin = 2)
+#' 
+#' # Retrieve posterior samples of the parameters
+#' C_spls = MCMC_spls$sample_list$C_spls
+#' L_spls = MCMC_spls$sample_list$L_spls
+#' Z_spls = MCMC_spls$sample_list$Z_spls
+#' W_spls = MCMC_spls$sample_list$W_spls
+#' 
+#' # Point estimate of C: posterior mode
+#' C_hat = which.max(tabulate(C_spls))
+#' 
+#' # Point estimates of L, Z, W and Lambda: Maximum A Posteriori (MAP) conditional on C_hat
+#' # First find which sample has the largest log-posterior
+#' logpost_spls = MCMC_spls$sample_list$logpost_spls
+#' logpost_spls[C_spls != C_hat] = -Inf
+#' index_MAP = which.max(logpost_spls)
+#' L_hat = L_spls[[index_MAP]]
+#' Z_hat = Z_spls[[index_MAP]]
+#' # The last column of W_hat corresponds to w[t0] in the paper, which is used to capture random noise
+#' W_hat = W_spls[[index_MAP]]
+#'
+#' # End(Not run)
+
 DClone_RJMCMC = function(n, N,
   C_min = 2, C_max = 7, K_min = 1, K_max = 3,
   niter = 5000, burnin = 20000, thin = 2, Delta = 1.15^(9:0), tau = 0.99,
@@ -1565,6 +1834,114 @@ DClone_RJMCMC = function(n, N,
 # 4. RClone: Function for Trans-dimensional (Reversible Jump) MCMC,
 #    if only RNA data are available
 ###################################################################################
+
+#' RClone trans-dimensional MCMC sampling
+#' 
+#' @description
+#' \code{RClone_RJMCMC} implements the trans-dimensional Markov chain Monte Carlo (MCMC)  
+#' sampling and parallel tempering described in the paper "RNDClone: Tumor Subclone 
+#' Reconstruction Based on Integrating DNA and RNA Sequence Data"
+#' if \strong{only RNA data are available}.
+#' The function \code{RClone_RJMCMC(M, ...)} takes one
+#' matrix, total RNA counts \code{M}, 
+#' as input, and returns posterior MCMC samples (in a list). 
+#' Compared to \code{RNDClone_RJMCMC}, \code{RClone_RJMCMC(M, ...)} cannot 
+#' estimate DNA-related quantities such as L and Z.
+#'
+#' @param M A \code{S * T} matrix, where \code{M[s, t]} is the total number of
+#'          RNA reads at locus \code{s} for sample \code{t}.
+#' @param C_min The prior lower bound for the number of subclones C; default is 2.
+#' @param C_max The prior upper bound for the number of subclones C; default is 7.
+#' @param g_fun A length \code{S} vector, where \code{g_fun[s]} is the index of 
+#'              the gene that locus \code{s} reside in. 
+#'              If not specified, \code{g_fun = 1:S} by default, i.e.,
+#'              each locus reside in a unique gene.
+#' @param niter Number of trans-dimensional MCMC samples to be returned; default is 5000.
+#' @param burnin Number of burn-in MCMC iterations; default is 20000.
+#' @param thin Thinning factor for the MCMC sampling; default is 2, 
+#'             i.e., take one sample every two MCMC iterations.
+#'             (Note: the total number of MCMC iterations would be 
+#'             burnin + thinning * niter).
+#' @param Delta A length I vector representing the (decreasing) temperatures used for 
+#'              parallel tempering. The last entry Delta[I] must be 1. The default value
+#'              is a length 10 vector, 1.15^(9:0).
+#' @param tau The power of the likelihood in the power prior proposal; default is 0.99.
+#' @param alpha A hyperparameter in the prior for C. Recall that C ~ Trunc-Geom(alpha),
+#'              where C is the number of subclones. The default value is alpha = 0.8.
+#' @param a_w A hyperparameter in the prior for W. Default is 1. Recall that W is a 
+#             \code{T * (C + 1)} matrix (including w[t, 0], included 
+#'            in the last column of W).
+#'            The t-th row of W is \code{c(W[t, 1], ..., W[t, C], W[t, 0])}, the 
+#'            population frequencies of the C subclones and the "background subclone".
+#'            W[t, 1] ~ Beta(a_w, b_w), and 
+#'           (W[t, 0], W[t, 2], ..., W[t, C]) ~ Dirichlet(d0, d, ..., d).
+#' @param b_w A hyperparameter in the prior for W. Default is 1.
+#' @param d A hyperparameter in the prior for W. Default is 1.
+#' @param d0 A hyperparameter in the prior for W. Default is 0.03.
+#' @param a_lambda A hyperparameter in the prior for Lambda. 
+#'                 Recall that Lambda[g, c] ~ Gamma(a_lambda, b_lambda),
+#'                 which is the RSGE of gene g in subclone c.
+#'                 Default is 1.
+#' @param b_lambda A hyperparameter in the prior for Lambda. 
+#'                 Default is 1.
+#' @param ... Other hyperparameters. Have default values but can also be changed.
+#'
+#' @return A list of the following:
+#' \describe{
+#' \item{\code{sample_list}}{Again, a list of MCMC samples for the parameters.
+#' \itemize{
+#'   \item \code{C_spls} A length \code{niter} vector, MCMC samples of the number 
+#'                       of subclones C.
+#'   \item \code{Lambda_spls} A length \code{niter} list, MCMC samples of the gene 
+#'                       expression matrix Lambda. Since the dimension of Lambda is 
+#'                       changing at each iteration, 
+#'                       \code{Lambda_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{W_spls} A length \code{niter} list, MCMC samples of the population 
+#'                       frequency matrix W. Since the dimension of W is 
+#'                       changing at each iteration, 
+#'                       \code{W_spls[[j]]} is the sample at the j-th iteration.
+#'   \item \code{logpost_spls} A length \code{niter} vector, log-posterior value
+#'                             at each MCMC iteration.
+#' }}
+#' \item{\code{PT_AC_state_list}}{For keeping the current MCMC states at every temprature
+#'                                and every possible C (number of subclones)}
+#' }
+#' @examples
+#' library(RNDClone)
+#' 
+#' data(sim1a_C4_T4)
+#' 
+#' # Retrieve data
+#' M = sim1a_C4_T4$M
+#' g_fun = sim1a_C4_T4$g_fun
+#' 
+#' set.seed(345)
+#' 
+#' # Run the trans-dimensional MCMC as described in the paper (may take a while, ~ 1 hr)
+#' MCMC_spls = RClone_RJMCMC(M = M, g_fun = g_fun)
+#' 
+#' # For testing purpose, use (small number of iterations and burnin)
+#' # MCMC_spls = RClone_RJMCMC(M = M, g_fun = g_fun, niter = 50, burnin = 200, thin = 2)
+#' 
+#' # Retrieve posterior samples of the parameters
+#' C_spls = MCMC_spls$sample_list$C_spls
+#' Lambda_spls = MCMC_spls$sample_list$Lambda_spls
+#' W_spls = MCMC_spls$sample_list$W_spls
+#' 
+#' # Point estimate of C: posterior mode
+#' C_hat = which.max(tabulate(C_spls))
+#' 
+#' # Point estimates of L, Z, W and Lambda: Maximum A Posteriori (MAP) conditional on C_hat
+#' # First find which sample has the largest log-posterior
+#' logpost_spls = MCMC_spls$sample_list$logpost_spls
+#' logpost_spls[C_spls != C_hat] = -Inf
+#' index_MAP = which.max(logpost_spls)
+#' Lambda_hat = Lambda_spls[[index_MAP]]
+#' # The last column of W_hat corresponds to w[t0] in the paper, which is used to capture random noise
+#' W_hat = W_spls[[index_MAP]]
+#'
+#' # End(Not run)
+
 RClone_RJMCMC = function(M, 
   C_min = 2, C_max = 7, g_fun = NULL, K_min = 1, K_max = 3, 
   niter = 5000, burnin = 20000, thin = 2, Delta = 1.15^(9:0), tau = 0.99,
